@@ -1,1 +1,146 @@
+#include <WiFiManager.h>
+#include <Arduino.h>
+#include "esp32-hal-cpu.h"
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <HTTPClient.h>
 
+uint32_t Freq = 0;
+
+//OLED Display
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// Declaration Untuk SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define DHTPIN 14     // Digital pin connected to the DHT sensor
+#define DHTTYPE    DHT22     // SESUAI SENSOR YANG DIPAKAI DHT 22 (AM2302)
+DHT dht(DHTPIN, DHTTYPE);
+
+//DATA LOG
+String IFTTTUrl="https://maker.ifttt.com/trigger/dht22_read/with/key/dK7xgz7XD2yQ1y9JQG5I7A"; // Sesuaikan Pada IFTTT Yang Dibuat
+String server = "http://maker.ifttt.com";
+String eventName = "dht22_read";
+String IFTTT_Key = "dK7xgz7XD2yQ1y9JQG5I7A";
+
+float value1;
+float value2;
+
+void setup(){
+  Serial.begin(115200);
+  WiFiManager wm;
+  
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  delay(2000);
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+
+  setCpuFrequencyMhz(80); //Set CPU clock to 80MHz fo example
+  Serial.println();
+  Serial.print("CPU Frequency is: ");
+  Serial.print(getCpuFrequencyMhz()); //Get CPU clock
+  Serial.print(" Mhz");
+  Serial.println();
+  Freq = getXtalFrequencyMhz();
+  Serial.print("XTAL Freq = ");
+  Serial.print(Freq);
+  Serial.println(" MHz");
+  Freq = getApbFrequency();
+  Serial.print("APB Freq = ");
+  Serial.print(Freq);
+  Serial.println(" Hz");
+
+  bool res;
+    res = wm.autoConnect("TEMP_DATALOG","password"); // password protected ap
+    if(!res) {
+        Serial.println("Failed to connect");
+    } 
+    else {   
+        Serial.println("connected...yeey :)");
+    }
+}
+
+void sendDataToSheet(void){
+  String url = server + "/trigger/" + eventName + "/with/key/" + IFTTT_Key + "?value1=" + String((float)value1) + "&value2="+String((float)value2); 
+
+  Serial.println(url);
+  //Start to send data to IFTTT
+  HTTPClient http;
+  Serial.print("[HTTP] begin...\n");
+  http.begin(url); //HTTP
+
+  Serial.print("[HTTP] GET...\n");
+  // start connection and send HTTP header
+  int httpCode = http.GET();
+  // httpCode will be negative on error
+  if(httpCode > 0) {
+    // HTTP header has been send and Server response header has been handled
+    Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+    // file found at server
+    if(httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      Serial.println(payload);
+    }
+  } else {
+    Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+  }
+  http.end();
+}
+
+void loop(){
+  delay(3500);
+  //read temperature and humidity
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+  }
+  // clear display
+  display.clearDisplay();
+  
+  // display temperature
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.print("Temperature: ");
+  display.setTextSize(2);
+  display.setCursor(0,10);
+  display.print(t);
+  display.print(" ");
+  display.setTextSize(1);
+  display.cp437(true);
+  display.write(167);
+  display.setTextSize(2);
+  display.print("C");
+  
+  // display humidity
+  display.setTextSize(1);
+  display.setCursor(0, 35);
+  display.print("Humidity: ");
+  display.setTextSize(2);
+  display.setCursor(0, 45);
+  display.print(h);
+  display.print(" %"); 
+  display.display(); 
+
+  
+  value1 = dht.readTemperature();
+  value2 = dht.readHumidity();
+
+  Serial.print("Values are ");
+  Serial.print(value1);
+  Serial.print(' ');
+  Serial.print(value2);
+  Serial.print(' ');
+
+  sendDataToSheet();
+  delay(3000);
+
+}
